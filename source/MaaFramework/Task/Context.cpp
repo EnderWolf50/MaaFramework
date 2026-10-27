@@ -90,6 +90,8 @@ MaaTaskId Context::run_task(const std::string& entry, const json::value& pipelin
         task_detail.status = ret ? MaaStatus_Succeeded : MaaStatus_Failed;
         runtime_cache.set_task_detail(subtask.task_id(), std::move(task_detail));
     }
+    // a subtask that ran no node has no node detail to own it
+    runtime_cache.own_subtask(subtask.task_id());
 
     return subtask.task_id();
 }

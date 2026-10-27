@@ -996,6 +996,74 @@ def test_template_override_across_bundles():
     print("  PASS: template override across bundles")
 
 
+def test_long_task_detail_limit():
+    """#1578：长任务只保留最近 200 个节点的详情，排在它后面的任务的 id 映射不受影响"""
+    print("\n=== test_long_task_detail_limit ===")
+
+    import json
+    import shutil
+    import tempfile
+
+    limit, loops = 200, 260
+    seen = {"steps": 0, "first_reco": None, "first_sub_reco": None, "b_ran": False}
+    image = numpy.zeros((720, 1280, 3), dtype=numpy.uint8)
+
+    class Step(CustomAction):
+        def run(self, context, argv):
+            seen["steps"] += 1
+            sub = context.run_recognition("Probe", image)
+            if seen["steps"] == 1:
+                seen["first_reco"], seen["first_sub_reco"] = argv.reco_detail.reco_id, sub.reco_id
+            return True
+
+    class Enough(CustomRecognition):
+        def analyze(self, context, argv):
+            return CustomRecognition.AnalyzeResult(box=(0, 0, 1, 1), detail={}) if seen["steps"] >= loops else None
+
+    class Mark(CustomAction):
+        def run(self, context, argv):
+            seen["b_ran"] = True
+            return True
+
+    fast = {"pre_delay": 0, "post_delay": 0, "rate_limit": 0}
+    pipeline = {
+        "Once": {"next": ["A"], **fast},
+        "A": {"action": "Custom", "custom_action": "Step", "next": ["AEnd", "A"], **fast},
+        "AEnd": {"recognition": "Custom", "custom_recognition": "Enough", **fast},
+        "Probe": {},
+        "B": {"action": "Custom", "custom_action": "Mark", **fast},
+    }
+    work = Path(tempfile.mkdtemp(prefix="maafw_detail_limit_"))
+    try:
+        (work / "pipeline").mkdir()
+        (work / "pipeline" / "limit.json").write_text(json.dumps(pipeline))
+        resource = Resource()
+        resource.register_custom_action("Step", Step())
+        resource.register_custom_recognition("Enough", Enough())
+        resource.register_custom_action("Mark", Mark())
+        assert resource.post_bundle(work).wait().succeeded
+        controller = MyController(image)
+        assert controller.post_connection().wait().succeeded
+        tasker = Tasker()
+        tasker.bind(resource, controller)
+
+        a, b = tasker.post_task("Once"), tasker.post_task("B")
+        assert a.wait().succeeded and seen["steps"] == loops, f"long task: {a.status} {seen}"
+        assert b.wait().succeeded and seen["b_ran"], "the task posted after it should run and read succeeded"
+
+        detail = a.get()
+        assert detail and len(detail.node_id_list) == limit, f"node ids: {detail and len(detail.node_id_list)}"
+        assert all(detail.nodes) and detail.nodes[-1].name == "AEnd", "every kept node id should have its detail"
+        assert tasker.get_recognition_detail(seen["first_reco"]) is None, "an old node's recognition should be dropped"
+        assert tasker.get_recognition_detail(seen["first_sub_reco"]) is None, "an old run_recognition should be dropped"
+        once = tasker.get_latest_node("Once")
+        assert once and once.recognition and once.recognition.hit, "the latest node of a name should stay"
+    finally:
+        shutil.rmtree(work, ignore_errors=True)
+
+    print("  PASS: long task detail limit")
+
+
 def _ctypes_type_name(ctypes_type):
     """取 ctypes 类型名；restype 可能为 None（void），此时回退到 repr。"""
     return getattr(ctypes_type, "__name__", repr(ctypes_type))
@@ -1303,6 +1371,9 @@ if __name__ == "__main__":
 
     # 回归：多 Bundle 同名模板覆盖 (#1541)
     test_template_override_across_bundles()
+
+    # 回归：长任务的详情上限 (#1578)
+    test_long_task_detail_limit()
 
     # shell API 的 ctypes 声明
     test_shell_api_declarations()

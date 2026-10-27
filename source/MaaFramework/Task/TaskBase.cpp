@@ -186,6 +186,14 @@ void TaskBase::set_node_detail(MaaNodeId node_id, NodeDetail detail)
     task_detail.node_ids.emplace_back(node_id);
 
     set_task_detail(task_detail);
+
+    // context 的子任务（run_task/run_recognition/run_action）的详情归入当前的顶层任务节点
+    if (context_ && context_->task_id() != task_id_) {
+        cache.own_subtask(task_id_);
+    }
+    else {
+        cache.own_task_node(task_id_, node_id);
+    }
 }
 
 void TaskBase::set_task_detail(TaskDetail detail)
