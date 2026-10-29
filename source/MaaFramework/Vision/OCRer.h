@@ -67,6 +67,7 @@ public:
         OCRerParam param,
         const ResultsVec& cached,
         std::shared_ptr<fastdeploy::vision::ocr::Recognizer> recer,
+        std::shared_ptr<fastdeploy::pipeline::PPOCRv4> ocrer,
         std::string name = "");
 
 private:

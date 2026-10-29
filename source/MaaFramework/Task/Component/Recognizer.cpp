@@ -268,7 +268,14 @@ RecoResult Recognizer::ocr(const MAA_VISION_NS::OCRerParam& param, const std::st
     if (can_use_batch_cache && ocr_batch_cache_->results.contains(name)) {
         const auto& cached = ocr_batch_cache_->results.at(name);
         LogDebug << "OCR using batch cache" << VAR(name) << VAR(cached);
-        return build_result(name, "OCR", OCRer(image_, rois, param, cached, resource()->ocr_res().recer(param.model), name));
+        return build_result(name, "OCR", OCRer(
+                image_,
+                rois,
+                param,
+                cached,
+                resource()->ocr_res().recer(param.model),
+                resource()->ocr_res().ocrer(param.model),
+                name));
     }
 
     return build_result(
